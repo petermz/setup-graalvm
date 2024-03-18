@@ -94255,30 +94255,58 @@ const LIBERICA_GH_USER = 'bell-sw';
 const LIBERICA_RELEASES_REPO = 'LibericaNIK';
 const LIBERICA_JDK_TAG_PREFIX = 'jdk-';
 const LIBERICA_VM_PREFIX = 'bellsoft-liberica-vm-';
-function setUpLiberica(javaVersion, javaPackage) {
+function setUpLiberica(javaVersion, javaPackage, graalVMVersion) {
     return __awaiter(this, void 0, void 0, function* () {
-        const resolvedJavaVersion = yield findLatestLibericaJavaVersion(javaVersion);
+        const resolvedJavaVersion = yield findLatestLibericaJavaVersion(javaVersion, graalVMVersion);
         const downloadUrl = yield findLibericaURL(resolvedJavaVersion, javaPackage);
         const toolName = determineToolName(javaVersion, javaPackage);
         return (0, utils_1.downloadExtractAndCacheJDK)(() => __awaiter(this, void 0, void 0, function* () { return (0, tool_cache_1.downloadTool)(downloadUrl); }), toolName, javaVersion);
     });
 }
 exports.setUpLiberica = setUpLiberica;
-function findLatestLibericaJavaVersion(javaVersion) {
+function findLatestLibericaJavaVersion(javaVersion, graalVMVersion) {
     return __awaiter(this, void 0, void 0, function* () {
-        const matchingRefs = yield (0, utils_1.getMatchingTags)(LIBERICA_GH_USER, LIBERICA_RELEASES_REPO, `${LIBERICA_JDK_TAG_PREFIX}${javaVersion}`);
         const noMatch = '0.0.1';
         let bestMatch = noMatch;
-        const prefixLength = `refs/tags/${LIBERICA_JDK_TAG_PREFIX}`.length;
-        const patternLength = javaVersion.length;
-        for (const matchingRef of matchingRefs) {
-            const version = matchingRef.ref.substring(prefixLength);
-            if (semver.valid(version) &&
-                // pattern '17.0.1' should match '17.0.1+12' but not '17.0.10'
-                (version.length <= patternLength ||
-                    !isDigit(version.charAt(patternLength))) &&
-                semver.compareBuild(version, bestMatch) == 1) {
-                bestMatch = version;
+        let matchingRefs;
+        if (graalVMVersion) {
+            matchingRefs = yield (0, utils_1.getMatchingTags)(LIBERICA_GH_USER, LIBERICA_RELEASES_REPO, `${graalVMVersion}`);
+            const prefixLength = `refs/tags/`.length;
+            const graalLength = graalVMVersion.length;
+            const javaLength = javaVersion.length;
+            let bestGraalMatch = '0.0.1';
+            let bestJavaMatch = '0.0.1';
+            for (const matchingRef of matchingRefs) {
+                const match = matchingRef.ref.substring(prefixLength);
+                const split = match.split('-');
+                const graalVer = split[0];
+                const javaVer = split[1];
+                if (semver.valid(graalVer) &&
+                    (graalVer.length <= graalLength || !isDigit(graalVer.charAt(graalLength))) &&
+                    semver.compareBuild(graalVer, bestGraalMatch) == 1 &&
+                    semver.valid(javaVer) &&
+                    // pattern '17.0.1' should match '17.0.1+12' but not '17.0.10'
+                    (javaVer.length <= javaLength || !isDigit(javaVer.charAt(javaLength))) &&
+                    semver.compareBuild(javaVer, bestJavaMatch) == 1) {
+                    bestGraalMatch = graalVer;
+                    bestJavaMatch = javaVer;
+                    bestMatch = match;
+                }
+            }
+        }
+        else {
+            matchingRefs = yield (0, utils_1.getMatchingTags)(LIBERICA_GH_USER, LIBERICA_RELEASES_REPO, `${LIBERICA_JDK_TAG_PREFIX}${javaVersion}`);
+            const prefixLength = `refs/tags/${LIBERICA_JDK_TAG_PREFIX}`.length;
+            const patternLength = javaVersion.length;
+            for (const matchingRef of matchingRefs) {
+                const version = matchingRef.ref.substring(prefixLength);
+                if (semver.valid(version) &&
+                    // pattern '17.0.1' should match '17.0.1+12' but not '17.0.10'
+                    (version.length <= patternLength ||
+                        !isDigit(version.charAt(patternLength))) &&
+                    semver.compareBuild(version, bestMatch) == 1) {
+                    bestMatch = version;
+                }
             }
         }
         if (bestMatch === noMatch) {
@@ -94290,9 +94318,19 @@ function findLatestLibericaJavaVersion(javaVersion) {
 exports.findLatestLibericaJavaVersion = findLatestLibericaJavaVersion;
 function findLibericaURL(javaVersion, javaPackage) {
     return __awaiter(this, void 0, void 0, function* () {
-        const release = yield (0, utils_1.getTaggedRelease)(LIBERICA_GH_USER, LIBERICA_RELEASES_REPO, LIBERICA_JDK_TAG_PREFIX + javaVersion);
+        let version;
+        let release;
+        const split = javaVersion.split('-');
+        if (split.length === 1) {
+            release = yield (0, utils_1.getTaggedRelease)(LIBERICA_GH_USER, LIBERICA_RELEASES_REPO, LIBERICA_JDK_TAG_PREFIX + javaVersion);
+            version = javaVersion;
+        }
+        else {
+            release = yield (0, utils_1.getTaggedRelease)(LIBERICA_GH_USER, LIBERICA_RELEASES_REPO, javaVersion);
+            version = `${split[1]}-${split[0]}`;
+        }
         const platform = determinePlatformPart();
-        const assetPrefix = `${LIBERICA_VM_PREFIX}${determineVariantPart(javaPackage)}openjdk${javaVersion}`;
+        const assetPrefix = `${LIBERICA_VM_PREFIX}${determineVariantPart(javaPackage)}openjdk${version}`;
         const assetSuffix = `-${platform}${c.GRAALVM_FILE_EXTENSION}`;
         for (const asset of release.assets) {
             if (asset.name.startsWith(assetPrefix) &&
@@ -94433,7 +94471,7 @@ function run() {
                         graalVMHome = yield (0, mandrel_1.setUpMandrel)(graalVMVersion, javaVersion);
                         break;
                     case c.DISTRIBUTION_LIBERICA:
-                        graalVMHome = yield (0, liberica_1.setUpLiberica)(javaVersion, graalVMVersion);
+                        graalVMHome = yield (0, liberica_1.setUpLiberica)(javaVersion, javaPackage, graalVMVersion);
                         break;
                     case '':
                         if (javaVersion === c.VERSION_DEV) {

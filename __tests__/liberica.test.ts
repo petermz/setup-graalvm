@@ -36,15 +36,16 @@ test('find latest JDK version', async () => {
 }, 30000)
 
 test('find asset URL', async () => {
-  await expectURL('11.0.22+12', '', 'bellsoft-liberica-vm-openjdk11.0.22')
-  await expectURL('17.0.10+13', 'jdk', 'bellsoft-liberica-vm-openjdk17.0.10')
+  await expectURL('11.0.22+12', '', '', 'bellsoft-liberica-vm-openjdk11.0.22')
+  await expectURL('17.0.10+13', 'jdk', '', 'bellsoft-liberica-vm-openjdk17.0.10')
 
   if (!c.IS_LINUX) {
     // This check can fail on Linux because there's no `jdk+fx` package for aarch64 and/or musl
     await expectURL(
-      '21.0.2+14',
+      '17.0.10',
       'jdk+fx',
-      'bellsoft-liberica-vm-full-openjdk21.0.2'
+      '23.0.3',
+      'bellsoft-liberica-vm-full-openjdk17.0.10'
     )
   }
 }, 10000)
@@ -101,17 +102,33 @@ function exactly(expectedVersion: string): verifier {
 }
 
 async function expectLatestToBe(pattern: string, verify: verifier) {
-  const result = await liberica.findLatestLibericaJavaVersion(pattern)
-  expect(semver.valid(result)).toBeDefined()
-  const major = semver.major(result)
-  const minor = semver.minor(result)
-  const patch = semver.patch(result)
-  verify(result, major, minor, patch)
+  const result = await liberica.findLatestLibericaJavaVersion(pattern, '')
+  let split = result.split('-')
+  if (split.length == 1) {
+    expect(semver.valid(result)).toBeDefined()
+    const major = semver.major(result)
+    const minor = semver.minor(result)
+    const patch = semver.patch(result)
+    verify(result, major, minor, patch)
+  } else {
+    const graalVer = split[0]
+    const javaVer = split[0]
+    expect(semver.valid(graalVer)).toBeDefined()
+    const graalMajor = semver.major(graalVer)
+    const graalMinor = semver.minor(graalVer)
+    const graalPatch = semver.patch(graalVer)
+    verify(graalVer, graalMajor, graalMinor, graalPatch)
+    expect(semver.valid(javaVer)).toBeDefined()
+    const javaMajor = semver.major(javaVer)
+    const javaMinor = semver.minor(javaVer)
+    const javaPatch = semver.patch(javaVer)
+    verify(javaVer, javaMajor, javaMinor, javaPatch)
+  }
 }
 
 async function expectLatestToFail(pattern: string) {
   try {
-    const result = await liberica.findLatestLibericaJavaVersion(pattern)
+    const result = await liberica.findLatestLibericaJavaVersion(pattern, '')
     throw new Error(
       `findLatest(${pattern}) should have failed but returned ${result}`
     )
@@ -128,9 +145,11 @@ async function expectLatestToFail(pattern: string) {
 async function expectURL(
   javaVersion: string,
   javaPackage: string,
+  graalVMVersion: string,
   expectedPrefix: string
 ) {
-  const url = await liberica.findLibericaURL(javaVersion, javaPackage)
+  const resolvedJavaVersion = await liberica.findLatestLibericaJavaVersion(javaVersion, graalVMVersion)
+  const url = await liberica.findLibericaURL(resolvedJavaVersion, javaPackage)
   expect(url).toBeDefined()
   const parts = url.split('/')
   const file = parts[parts.length - 1]

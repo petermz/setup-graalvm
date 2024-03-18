@@ -64,7 +64,7 @@ async function run(): Promise<void> {
           graalVMHome = await setUpMandrel(graalVMVersion, javaVersion)
           break
         case c.DISTRIBUTION_LIBERICA:
-          graalVMHome = await setUpLiberica(javaVersion, javaPackage)
+          graalVMHome = await setUpLiberica(javaVersion, javaPackage, graalVMVersion)
           break
         case '':
           if (javaVersion === c.VERSION_DEV) {

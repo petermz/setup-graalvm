@@ -15,9 +15,10 @@ const LIBERICA_VM_PREFIX = 'bellsoft-liberica-vm-'
 
 export async function setUpLiberica(
   javaVersion: string,
-  javaPackage: string
+  javaPackage: string,
+  graalVMVersion: string
 ): Promise<string> {
-  const resolvedJavaVersion = await findLatestLibericaJavaVersion(javaVersion)
+  const resolvedJavaVersion = await findLatestLibericaJavaVersion(javaVersion, graalVMVersion)
   const downloadUrl = await findLibericaURL(resolvedJavaVersion, javaPackage)
   const toolName = determineToolName(javaVersion, javaPackage)
   return downloadExtractAndCacheJDK(
@@ -28,27 +29,61 @@ export async function setUpLiberica(
 }
 
 export async function findLatestLibericaJavaVersion(
-  javaVersion: string
+  javaVersion: string,
+  graalVMVersion: string
 ): Promise<string> {
-  const matchingRefs = await getMatchingTags(
-    LIBERICA_GH_USER,
-    LIBERICA_RELEASES_REPO,
-    `${LIBERICA_JDK_TAG_PREFIX}${javaVersion}`
-  )
   const noMatch = '0.0.1'
   let bestMatch = noMatch
-  const prefixLength = `refs/tags/${LIBERICA_JDK_TAG_PREFIX}`.length
-  const patternLength = javaVersion.length
-  for (const matchingRef of matchingRefs) {
-    const version = matchingRef.ref.substring(prefixLength)
-    if (
-      semver.valid(version) &&
-      // pattern '17.0.1' should match '17.0.1+12' but not '17.0.10'
-      (version.length <= patternLength ||
-        !isDigit(version.charAt(patternLength))) &&
-      semver.compareBuild(version, bestMatch) == 1
-    ) {
-      bestMatch = version
+  let matchingRefs;
+  if (graalVMVersion) {
+    matchingRefs = await getMatchingTags(
+      LIBERICA_GH_USER,
+      LIBERICA_RELEASES_REPO,
+      `${graalVMVersion}`
+    )
+    const prefixLength = `refs/tags/`.length
+    const graalLength = graalVMVersion.length
+    const javaLength = javaVersion.length
+    let bestGraalMatch = '0.0.1'
+    let bestJavaMatch = '0.0.1'
+    for (const matchingRef of matchingRefs) {
+      const match = matchingRef.ref.substring(prefixLength)
+      const split = match.split('-')
+      const graalVer = split[0]
+      const javaVer = split[1]
+      if (
+        semver.valid(graalVer) &&
+        (graalVer.length <= graalLength || !isDigit(graalVer.charAt(graalLength))) &&
+        semver.compareBuild(graalVer, bestGraalMatch) == 1 &&
+        semver.valid(javaVer) &&
+        // pattern '17.0.1' should match '17.0.1+12' but not '17.0.10'
+        (javaVer.length <= javaLength || !isDigit(javaVer.charAt(javaLength))) &&
+        semver.compareBuild(javaVer, bestJavaMatch) == 1
+      ) {
+        bestGraalMatch = graalVer
+        bestJavaMatch = javaVer
+        bestMatch = match
+      }
+    }
+  } else {
+    matchingRefs = await getMatchingTags(
+      LIBERICA_GH_USER,
+      LIBERICA_RELEASES_REPO,
+      `${LIBERICA_JDK_TAG_PREFIX}${javaVersion}`
+    )
+    const prefixLength = `refs/tags/${LIBERICA_JDK_TAG_PREFIX}`.length
+    const patternLength = javaVersion.length
+    for (const matchingRef of matchingRefs) {
+      const version = matchingRef.ref.substring(prefixLength)
+      if (
+        semver.valid(version) &&
+        // pattern '17.0.1' should match '17.0.1+12' but not '17.0.10'
+        (version.length <= patternLength ||
+          !isDigit(version.charAt(patternLength))) &&
+        semver.compareBuild(version, bestMatch) == 1
+      ) {
+        bestMatch = version
+      }
     }
   }
   if (bestMatch === noMatch) {
@@ -61,17 +96,30 @@ export async function findLatestLibericaJavaVersion(
 
 export async function findLibericaURL(
   javaVersion: string,
-  javaPackage: string
+  javaPackage: string,
 ): Promise<string> {
-  const release = await getTaggedRelease(
-    LIBERICA_GH_USER,
-    LIBERICA_RELEASES_REPO,
-    LIBERICA_JDK_TAG_PREFIX + javaVersion
-  )
+  let version
+  let release
+  const split = javaVersion.split('-')
+  if (split.length === 1) {
+    release = await getTaggedRelease(
+      LIBERICA_GH_USER,
+      LIBERICA_RELEASES_REPO,
+      LIBERICA_JDK_TAG_PREFIX + javaVersion
+    )
+    version = javaVersion
+  } else {
+    release = await getTaggedRelease(
+      LIBERICA_GH_USER,
+      LIBERICA_RELEASES_REPO,
+      javaVersion
+    )
+    version = `${split[1]}-${split[0]}`
+  }
   const platform = determinePlatformPart()
   const assetPrefix = `${LIBERICA_VM_PREFIX}${determineVariantPart(
     javaPackage
-  )}openjdk${javaVersion}`
+  )}openjdk${version}`
   const assetSuffix = `-${platform}${c.GRAALVM_FILE_EXTENSION}`
   for (const asset of release.assets) {
     if (
